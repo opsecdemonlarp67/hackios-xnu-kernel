@@ -15,7 +15,9 @@
 /* ------------------------------------------------------------------------ */
 /* Fixed conventions shared with the boot shim, the packer and the kernel   */
 
-#define PAYLOAD_BASE        0xF0000000ULL
+#ifndef PAYLOAD_BASE
+#define PAYLOAD_BASE        0xF0000000ULL /* redwood; cupid builds pass -DPAYLOAD_BASE=0xF4600000 */
+#endif
 #define PAYLOAD_MAGIC       0x50554E58u /* "XNUP" */
 
 struct payload_header { uint32_t magic; uint32_t size; };
@@ -517,6 +519,8 @@ struct platform {
 	const char *name;
 	uint64_t io_base, io_size;       /* one window covering the SoC peripherals */
 	uint64_t gic_dist, gic_redist;   /* GICv3 */
+	uint64_t gic_redist_size;        /* how much of the redistributor region the cores use */
+	uint32_t gic_redist_stride;      /* the distance between two cores' redistributor frames */
 	uint64_t uart;                   /* PL011, 0 if none */
 	int psci_hvc;                    /* the firmware's power interface is called with HVC, not SMC */
 	int log_other_cpu;               /* keep notes in the log partition while a kernel starts on another core */
@@ -528,7 +532,8 @@ struct platform {
 
 static const struct platform platform_qemu_virt = {
 	.name = "qemu-virt", .io_base = 0x08000000, .io_size = 0x08000000,
-	.gic_dist = 0x08000000, .gic_redist = 0x080A0000, .uart = 0x09000000, .psci_hvc = 1,
+	.gic_dist = 0x08000000, .gic_redist = 0x080A0000, .gic_redist_size = 0x100000,
+	.gic_redist_stride = 0x20000, .uart = 0x09000000, .psci_hvc = 1,
 	.cores = 8, .core_shift = 0,
 	/*
 	 * QEMU's emulated cores stop each other all the time (every flush of a page from all the
@@ -541,12 +546,32 @@ static const struct platform platform_qemu_virt = {
 static const struct platform platform_redwood = {
 	/* io_base must be non-zero: XNU treats a zero SoC base as "no SoC" and skips clock setup. */
 	.name = "redwood", .io_base = 0x00400000, .io_size = 0x3FC00000,
-	.gic_dist = 0x17A00000, .gic_redist = 0x17A60000, .uart = 0, .log_other_cpu = 1,
+	.gic_dist = 0x17A00000, .gic_redist = 0x17A60000, .gic_redist_size = 0x100000,
+	.gic_redist_stride = 0x20000, .uart = 0, .log_other_cpu = 1,
 	.cores = 8, .core_shift = 8,
 	/*
 	 * Cores 0-3 are Cortex-A55s (1.8 GHz at most), 4-7 Cortex-A78s (2.4 GHz): a big one is about
 	 * 2.5 times as fast. The kernel uses the small ones only when the big ones are all busy
 	 * (XNU's machine_routines.c, ml_choose_slow_core_partners()).
+	 */
+	.small_cores = 0x0f,
+};
+
+/*
+ * Xiaomi 12 (cupid, SM8450/waipio). The display is the splash framebuffer the UEFI was given,
+ * at 0xB8000000; that is what selects this description.
+ */
+static const struct platform platform_cupid = {
+	/* io_base must be non-zero: XNU treats a zero SoC base as "no SoC" and skips clock setup.
+	 * 0x00100000 is deliberately not redwood's 0x00400000: the redwood-only GPU/WiFi/ADSP
+	 * drivers compare the SoC base and must not run on this phone. */
+	.name = "cupid", .io_base = 0x00100000, .io_size = 0x3FF00000,
+	.gic_dist = 0x17100000, .gic_redist = 0x17180000, .gic_redist_size = 0x200000,
+	.gic_redist_stride = 0x40000, .uart = 0, .log_other_cpu = 1,
+	.cores = 8, .core_shift = 8,
+	/*
+	 * Cores 0-3 are Cortex-A510s (capacity-dmips-mhz 0x400), 4-6 Cortex-A710s
+	 * (0x8cd), 7 a Cortex-X2 (0x952).
 	 */
 	.small_cores = 0x0f,
 };
@@ -3235,8 +3260,11 @@ run_kernel(int have_checkpoint, uint64_t checkpoint)
 	dt_begin(&w, "gic");
 	dt_prop_str(&w, "device_type", "interrupt-controller");
 	dt_prop_str(&w, "compatible", "arm,gic-v3");
-	uint64_t gic_reg[4] = { plat->gic_dist - plat->io_base, 0x10000, plat->gic_redist - plat->io_base, 0x100000 };
+	uint64_t gic_reg[4] = { plat->gic_dist - plat->io_base, 0x10000, plat->gic_redist - plat->io_base,
+	    plat->gic_redist_size ? plat->gic_redist_size : 0x100000 };
+	uint32_t gic_stride[2] = { 0, plat->gic_redist_stride ? plat->gic_redist_stride : 0x20000 };
 	dt_prop(&w, "reg", gic_reg, sizeof(gic_reg));
+	dt_prop(&w, "redistributor-stride", gic_stride, sizeof(gic_stride));
 	dt_end(&w);
 	if (plat->uart != 0) {
 		dt_begin(&w, "uart0");
@@ -3932,6 +3960,8 @@ efi_main(efi_handle image, efi_system_table *st)
 		SCREEN.stride = GOP->mode->info->pixels_per_scanline * 4;
 		if (SCREEN.base == 0xE1000000ULL) {
 			PLAT = &platform_redwood;
+		} else if (SCREEN.base == 0xB8000000ULL) {
+			PLAT = &platform_cupid;
 		} else {
 			ramfb_phone_screen();
 		}

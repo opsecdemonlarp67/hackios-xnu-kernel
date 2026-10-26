@@ -209,6 +209,7 @@ void
 hakios_input_init(void)
 {
 	int major = cdevsw_add(-1, &touch_cdevsw);
+	extern vm_offset_t pe_arm_get_soc_base_phys(void);
 
 	if (major < 0 || devfs_make_node(makedev(major, 0), DEVFS_CHAR, UID_ROOT, GID_WHEEL, 0666, "hakios-touch") == NULL) {
 		printf("hakios-touch: cannot create the device\n");
@@ -216,7 +217,12 @@ hakios_input_init(void)
 	exit_call = thread_call_allocate(exit_hold_elapsed, NULL);
 	hakios_cpufreq_init();
 	hakios_virtio_input_init();
-	hakios_goodix_init();
+	/* the Xiaomi 12's panel is an ST FTS on SPI, not a Goodix on I2C */
+	if (pe_arm_get_soc_base_phys() == 0x00100000) {
+		hakios_fts_init();
+	} else {
+		hakios_goodix_init();
+	}
 	hakios_buttons_init();
 	hakios_battery_init();
 	hakios_ufs_init();

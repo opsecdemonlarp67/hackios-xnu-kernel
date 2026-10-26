@@ -536,6 +536,14 @@ hakios_buttons_init(void)
 {
 	uint32_t enabled = 0, steps = 5;
 	thread_t thread;
+	extern vm_offset_t pe_arm_get_soc_base_phys(void);
+	extern void hakios_buttons_cupid_init(void);
+
+	/* the Xiaomi 12's keys are on a newer arbiter; its driver knows that layout */
+	if (pe_arm_get_soc_base_phys() == 0x00100000) {
+		hakios_buttons_cupid_init();
+		return;
+	}
 
 	/*
 	 * On with the touch screen (the phone, somebody at it) unless buttons=0 says otherwise: a hand

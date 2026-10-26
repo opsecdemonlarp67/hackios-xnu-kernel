@@ -54,7 +54,14 @@ tell(const char *format, ...)
 	}
 }
 
-#define EPSS_PHYS               0x18591000UL    /* three groups ("domains") of 0x1000: small cores, big, biggest */
+/*
+ * The three groups ("domains") of 0x1000: small cores, big, biggest. Redwood's start at
+ * 0x18591000, cupid's at 0x17d91000; which phone this is is read from the SoC base the loader
+ * wrote into the device tree (redwood 0x00400000, cupid 0x00100000).
+ */
+#define EPSS_PHYS_REDWOOD       0x18591000UL
+#define EPSS_PHYS_CUPID         0x17d91000UL
+static vm_offset_t epss_phys = EPSS_PHYS_REDWOOD;
 #define EPSS_DOMAIN_SIZE        0x1000UL
 #define EPSS_DOMAINS            3
 #define EPSS_FREQ_TABLE         0x100           /* a word per row: [31:30] clock source, [7:0] multiple of 19.2 MHz */
@@ -92,7 +99,7 @@ raise_domain(uint32_t domain, uint32_t cores)
 	uint32_t top = 0, top_khz = 0, was;
 	vm_offset_t base;
 
-	base = ml_io_map(EPSS_PHYS + domain * EPSS_DOMAIN_SIZE, EPSS_DOMAIN_SIZE);
+	base = ml_io_map(epss_phys + domain * EPSS_DOMAIN_SIZE, EPSS_DOMAIN_SIZE);
 	for (uint32_t row = 0; row < EPSS_TABLE_ROWS; row++) {
 		uint32_t entry = *(volatile uint32_t *)(base + EPSS_FREQ_TABLE + 4 * row);
 		uint32_t khz = (entry >> 30) ? XO_KHZ * (entry & 0xff) : ALTERNATE_KHZ;
@@ -378,7 +385,9 @@ ddr_look(void)
  * each (sc7280's qcom,tcs-config): every command with an address, and which of them go to the BCMs
  * above -- the bandwidth it asked for, and that is in force whenever the processors are awake.
  */
-#define RSC_PHYS                0x18220000UL
+#define RSC_PHYS_REDWOOD        0x18220000UL
+#define RSC_PHYS_CUPID          0x17a20000UL
+static vm_offset_t rsc_phys = RSC_PHYS_REDWOOD;
 #define RSC_SIZE                0x10000UL
 #define RSC_TCS(n, reg)         (0xd00 + 0x2a0 * (n) + (reg))
 #define RSC_TCS_COUNT           9
@@ -387,7 +396,7 @@ ddr_look(void)
 static void
 ddr_slots(void)
 {
-	vm_offset_t rsc = ml_io_map(RSC_PHYS, RSC_SIZE);
+	vm_offset_t rsc = ml_io_map(rsc_phys, RSC_SIZE);
 
 	for (unsigned t = 0; t < RSC_TCS_COUNT; t++) {
 		uint32_t enabled = *(volatile uint32_t *)(rsc + RSC_TCS(t, 0x1c));
@@ -528,7 +537,7 @@ ddr_raise(void)
 		tell("ddr: no vote (MC0 %#x, SH0 %#x, ACV %#x, vote %u)\n", ddr_mc0, ddr_sh0, ddr_acv, vote);
 		return;
 	}
-	ddr_rsc = ml_io_map(RSC_PHYS, RSC_SIZE);
+	ddr_rsc = ml_io_map(rsc_phys, RSC_SIZE);
 	ddr_voted = ddr_vote(vote);
 	tell("ddr: memory bandwidth vote %u on MC0 (%#x) and SH0 (%#x)%s\n", vote, ddr_mc0, ddr_sh0, ddr_voted ? "" : ": FAILED");
 }
@@ -559,7 +568,12 @@ hakios_cpufreq_init(void)
 {
 	const ml_topology_info_t *topology = ml_get_topology_info();
 	uint32_t enabled = 0, cores[EPSS_DOMAINS] = { 0 }, before, here;
+	extern vm_offset_t pe_arm_get_soc_base_phys(void);
 
+	if (pe_arm_get_soc_base_phys() == 0x00100000) {          /* cupid */
+		epss_phys = EPSS_PHYS_CUPID;
+		rsc_phys = RSC_PHYS_CUPID;
+	}
 	load_start();
 	enabled = 2;
 	PE_parse_boot_argn("ddr", &enabled, sizeof(enabled));

@@ -1,32 +1,57 @@
 #!/usr/bin/env python3
 """
-Pack the redwood UEFI (with the hook that starts the XNU loader) and an optional payload
+Pack a phone's UEFI (with the hook that starts the XNU loader) and an optional payload
 into an Android boot image for `fastboot boot`.
 
   kernel = gzip(BootShim + UEFI FD + ["XNUP" container]) + DTB
 
 The boot shim copies the FD to its base and the payload to PAYLOAD_BASE.
 
-The UEFI pieces are taken from a Mu-Silicium tree built here (Mu-Silicium/, see devices/poco-x5-pro/uefi/README.md)
-or, when there is none, from devices/poco-x5-pro/prebuilt/.
+The device is chosen with DEVICE (default: poco-x5-pro) or --device; its directory
+devices/<device>/ holds image.conf (the FD base and size, the payload base, the DTB
+name) and prebuilt/ (the UEFI pieces when there is no Mu-Silicium build here).
 
-usage: mkxnuimg.py [-p payload.bin] [-o out.img]
+The UEFI pieces are taken from a Mu-Silicium tree built here (Mu-Silicium/, see
+devices/<device>/uefi/README.md) or, when there is none, from devices/<device>/prebuilt/.
+
+usage: [DEVICE=xiaomi-12] mkxnuimg.py [-p payload.bin] [-o out.img]
 """
 import argparse, gzip, os, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MU = os.path.join(HERE, 'Mu-Silicium')
-PREBUILT = os.path.join(HERE, 'devices', 'poco-x5-pro', 'prebuilt')
-FD_BASE, FD_SIZE = 0x9FD00000, 0x200000
-PAYLOAD_BASE, PAYLOAD_MAX = 0xF0000000, 0x04000000
 
 ap = argparse.ArgumentParser()
 ap.add_argument('-p', '--payload')
-ap.add_argument('-o', '--output', default=os.path.join(HERE, 'xnu-redwood.img'))
+ap.add_argument('-o', '--output')
 ap.add_argument('--mode', default='RELEASE')
+ap.add_argument('--device', default=os.environ.get('DEVICE', 'poco-x5-pro'))
 args = ap.parse_args()
 
-fd_path = os.path.join(MU, f'Build/redwoodPkg/{args.mode}_CLANGPDB/FV/SILICIUM_UEFI.fd')
+DEVICE = args.device
+DEVICE_DIR = os.path.join(HERE, 'devices', DEVICE)
+PREBUILT = os.path.join(DEVICE_DIR, 'prebuilt')
+CONF = os.path.join(DEVICE_DIR, 'image.conf')
+
+# defaults are the POCO X5 Pro's, the first device
+conf = {'uefi_pkg': 'redwoodPkg', 'fd_base': '0x9FD00000', 'fd_size': '0x200000',
+        'payload_base': '0xF0000000', 'payload_max': '0x04000000',
+        'dtb': 'redwood.dtb', 'output': 'xnu-redwood.img'}
+if os.path.isfile(CONF):
+    for line in open(CONF):
+        line = line.split('#', 1)[0].strip()
+        if not line or '=' not in line:
+            continue
+        k, v = line.split('=', 1)
+        conf[k.strip()] = v.strip()
+FD_BASE, FD_SIZE = int(conf['fd_base'], 0), int(conf['fd_size'], 0)
+PAYLOAD_BASE, PAYLOAD_MAX = int(conf['payload_base'], 0), int(conf['payload_max'], 0)
+UEFI_PKG = conf['uefi_pkg']
+DTB_NAME = conf['dtb']
+if args.output is None:
+    args.output = os.path.join(HERE, conf['output'])
+
+fd_path = os.path.join(MU, f'Build/{UEFI_PKG}/{args.mode}_CLANGPDB/FV/SILICIUM_UEFI.fd')
 if os.path.isfile(fd_path):
     shim_dir = os.path.join(MU, 'BootShim')
     for f in ('BootShim.elf', 'BootShim.bin'):
@@ -36,7 +61,7 @@ if os.path.isfile(fd_path):
                            f'CFLAGS=--target=aarch64-linux-gnu -DPAYLOAD_BASE={PAYLOAD_BASE:#x}'],
                           cwd=shim_dir, stdout=subprocess.DEVNULL)
     parts = {'shim': os.path.join(shim_dir, 'BootShim.bin'), 'fd': fd_path,
-             'dtb': os.path.join(MU, 'Resources/DTBs/redwood.dtb'), 'ramdisk': os.path.join(MU, 'Resources/ramdisk'),
+             'dtb': os.path.join(MU, 'Resources/DTBs', DTB_NAME), 'ramdisk': os.path.join(MU, 'Resources/ramdisk'),
              'mkbootimg': os.path.join(MU, 'Resources/Scripts/mkbootimg.py')}
 else:
     parts = {'shim': os.path.join(PREBUILT, 'BootShim.bin'), 'fd': os.path.join(PREBUILT, 'SILICIUM_UEFI.fd'),

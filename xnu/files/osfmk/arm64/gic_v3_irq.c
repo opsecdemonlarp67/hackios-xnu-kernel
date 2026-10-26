@@ -55,7 +55,6 @@
 #define GICD_IGRPMODR(n)        (0x0d00 + 4 * (n))
 #define GICD_IROUTER(n)         (0x6000 + 8 * (n))
 
-#define GICR_FRAME_SIZE         0x20000     /* RD_base + SGI_base per CPU */
 #define GICR_TYPER              0x0008
 #define GICR_TYPER_LAST         (1u << 4)
 #define GICR_WAKER              0x0014
@@ -80,6 +79,7 @@
 
 static vm_offset_t gicd_base, gicr_base;
 static vm_size_t   gicr_size;
+static vm_size_t   gicr_frame_size = 0x20000;   /* RD_base + SGI_base per CPU; the DT may say otherwise */
 static vm_offset_t gicr_cpu_base[MAX_CPUS]; /* each processor's redistributor frame */
 
 /*
@@ -399,7 +399,7 @@ gic_find_redistributor(void)
 	/* GICR_TYPER[63:32] packs Aff3.Aff2.Aff1.Aff0 */
 	uint32_t affinity = (uint32_t)(((mpidr >> 32) & 0xff) << 24 | (mpidr & 0xffffff));
 
-	for (vm_offset_t frame = gicr_base; frame + GICR_FRAME_SIZE <= gicr_base + gicr_size; frame += GICR_FRAME_SIZE) {
+	for (vm_offset_t frame = gicr_base; frame + gicr_frame_size <= gicr_base + gicr_size; frame += gicr_frame_size) {
 		uint64_t typer = *(volatile uint64_t *)(frame + GICR_TYPER);
 
 		if ((uint32_t)(typer >> 32) == affinity) {
@@ -432,6 +432,20 @@ gic_v3_irq_cpu_init(void)
 		}
 		uint64_t const *reg = prop;
 		vm_offset_t soc_base = pe_arm_get_soc_base_phys();
+
+		/*
+		 * Qualcomm's redistributor frames are not always 128 KB apart: the loader writes the
+		 * device's stride here (cupid: 256 KB, eight cores, two megabytes in all).
+		 */
+		if (SecureDTGetProperty(entry, "redistributor-stride", &prop, &prop_size) == kSuccess &&
+		    prop_size >= 2 * sizeof(uint32_t)) {
+			uint32_t const *stride = prop;
+
+			gicr_frame_size = ((vm_size_t)stride[0] << 32) | stride[1];
+			if (gicr_frame_size == 0) {
+				gicr_frame_size = 0x20000;
+			}
+		}
 
 		simple_lock_init(&gic_spi_lock, 0);
 		gicd_base = ml_io_map(soc_base + reg[0], reg[1]);
