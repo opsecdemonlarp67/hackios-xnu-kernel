@@ -46,10 +46,19 @@
 cd "$(dirname "$(readlink -f "$0")")" || exit 1
 # On a Mac: flock, GNU timeout and stat, and Android's platform-tools, from tools/macos-bin (see its README)
 [ "$(uname)" = Darwin ] && PATH=$PWD/tools/macos-bin:$PWD/tools/macos-bin/platform-tools:$PATH
+# the phone the images are for: its prebuilt/ holds the loader and kernel when this tree is not built
+DEVICE=${DEVICE:-poco-x5-pro}
+export DEVICE
 # the kernel and the loader built here, or else the ones that come with the repository
 K=xnu-src/xnu-8796.121.2/BUILD/obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837
+[ -f $K ] || K=devices/$DEVICE/prebuilt/mach.development.bcm2837
 [ -f $K ] || K=prebuilt/mach.development.bcm2837
 L=xnuloader/loader.efi
+if [ "$DEVICE" != poco-x5-pro ] && [ -f devices/$DEVICE/prebuilt/loader.efi ]; then
+	# a port's loader has its own PAYLOAD_BASE compiled in; the one built here may be the POCO's
+	L=devices/$DEVICE/prebuilt/loader.efi
+fi
+[ -f $L ] || L=devices/$DEVICE/prebuilt/loader.efi
 [ -f $L ] || L=prebuilt/loader.efi
 mkdir -p logs
 # There is one phone, whichever working copy (tools/new-workspace.sh) talks to it: the locks are

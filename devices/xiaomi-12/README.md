@@ -8,7 +8,7 @@ tree and its Android.
 |---|---|
 | SoC | Qualcomm Snapdragon 8 Gen 1 (SM8450, "waipio" in the device tree) |
 | UEFI for the phone | `uefi/`: a port of Mu-Silicium (a patch and files; `apply.sh` clones and applies, `export.sh` saves) |
-| Prebuilt UEFI images | `prebuilt/`: `SILICIUM_UEFI.fd`, `BootShim.bin`, the device tree `device-tree.dtb` (from `vendor_boot`), `ramdisk`, `mkbootimg.py` |
+| Prebuilt UEFI images | `prebuilt/`: `SILICIUM_UEFI.fd`, `BootShim.bin`, the device tree `device-tree.dtb` (from `vendor_boot`), `ramdisk`, `mkbootimg.py`, and the cupid loader/kernel (`loader.efi`, `mach.development.bcm2837`) |
 | The phone's firmware | **not in the repository**: `pull-firmware.sh` pulls it off your phone over `adb` into `fw-*/` at the top |
 | SoC boot-args | `soc.args`: the modem/IPA addresses from this phone's device tree (`tools/soc-args.py`, `pull-soc.sh`) |
 
