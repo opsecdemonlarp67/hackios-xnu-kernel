@@ -4,8 +4,9 @@
 # images and run the system (QEMU or the phone); see README.md.
 #
 # DEVICE=<name> (default: poco-x5-pro) says which devices/<name>/prebuilt the phone's UEFI pieces go
-# to; devices/<name>/image.conf holds its package name and DTB. The kernel and the loader are the
-# same for every device: they pick the phone at run time from its framebuffer and device tree.
+# to; devices/<name>/image.conf holds its package name and DTB. The kernel is the same for every
+# device; the loader is not: its payload base (and, for a port, its platform default) is compiled
+# in, so it is rebuilt here from image.conf before it is copied.
 set -e
 cd "$(dirname "$(readlink -f "$0")")/.."
 DEVICE=${DEVICE:-poco-x5-pro}
@@ -18,13 +19,26 @@ UEFI_PKG=$(conf uefi_pkg); DTB=$(conf dtb)
 K=${KERNEL:-xnu-src/xnu-8796.121.2/BUILD/obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837}
 MU=Mu-Silicium
 mkdir -p prebuilt/userland "$DEV/prebuilt"
+# Rebuild the loader for this device: PAYLOAD_BASE and the platform default are compiled in.
+LOADER_OK=0
+PB=$(conf payload_base)
+PLATFORM_NAME=$(conf platform)
+if [ -f xnuloader/identity.h ]; then
+	if ( cd xnuloader && PAYLOAD_BASE=$PB PLATFORM=$PLATFORM_NAME ./build.sh ) >/dev/null; then
+		LOADER_OK=1
+	else
+		echo "update-prebuilt.sh: could not rebuild the loader; keeping the prebuilt one" >&2
+	fi
+else
+	echo "update-prebuilt.sh: xnuloader/identity.h missing; keeping the prebuilt loader" >&2
+fi
 if [ "$DEVICE" = poco-x5-pro ]; then
 	cp $K prebuilt/mach.development.bcm2837
-	[ -f xnuloader/loader.efi ] && cp xnuloader/loader.efi prebuilt/loader.efi || echo "update-prebuilt.sh: no xnuloader/loader.efi here (lld-link); prebuilt/loader.efi kept"
+	if [ "$LOADER_OK" = 1 ]; then cp xnuloader/loader.efi prebuilt/loader.efi; fi
 else
 	# the loader's payload base is compiled in, so a port keeps its own; the kernel is the same source
 	cp $K "$DEV/prebuilt/mach.development.bcm2837"
-	[ -f xnuloader/loader.efi ] && cp xnuloader/loader.efi "$DEV/prebuilt/loader.efi" || echo "update-prebuilt.sh: no xnuloader/loader.efi here (lld-link); $DEV/prebuilt/loader.efi kept"
+	if [ "$LOADER_OK" = 1 ]; then cp xnuloader/loader.efi "$DEV/prebuilt/loader.efi"; fi
 fi
 cp userland/hello prebuilt/userland/
 for f in init child stage0 hello_dyn svc_test surf_test rwtouch mg_test cpu_test sound_test libhakios.dylib libhakios.sb.dylib \

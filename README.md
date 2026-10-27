@@ -114,7 +114,10 @@ xnu-deps/setup.sh        # dependencies, tools and the SDK
 ./xnu-build.sh -j8 -k    # -> xnu-src/.../BUILD/obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837
 ```
 
-The loader: `xnuloader/build.sh` (clang + lld-link, an EFI application without EDK2). The header
+The loader: `xnuloader/build.sh` (clang + lld-link, an EFI application without EDK2). Its payload
+base is compiled in, so a port builds it with its own values, e.g.
+`PLATFORM=cupid PAYLOAD_BASE=0xF4600000 xnuloader/build.sh` (the values are in
+`devices/<name>/image.conf`). The header
 `xnuloader/identity.h`, the properties by which iOS tells which iPhone it is, is not kept in the
 repository: `xnuloader/mkidentity.sh` makes it at build time from the device tree in your own IPSW
 (one 34 KB file; LZFSE is decoded by `lzfse`, macOS's `compression_tool` or the Python `lzfse`

@@ -23,7 +23,9 @@ Ported and building:
   the same SM8450/waipio. FD `0xA7000000`/`0x400000`, XNUP payload at `0xF4600000`, DXE heap at
   `0xF8600000`.
 - **Loader**: `platform_cupid` (GIC `0x17100000`/`0x17180000`, 256 KB redistributor stride, 8 cores,
-  framebuffer `0xB8000000`), selected by the framebuffer base.
+  framebuffer `0xB8000000`), forced by `PLATFORM=cupid`; built with `PAYLOAD_BASE=0xF4600000` so it
+  looks for the payload where the boot shim puts it. Build it with
+  `PLATFORM=cupid PAYLOAD_BASE=0xF4600000 ./xnuloader/build.sh`.
 - **Touch**: `hakios.fts.c`, the ST FTS controller on QUP0 SE4 (`spi@990000`), with the PM8350C
   LDO2/LDO7 supplies and TLMM pins 16-21.
 - **Buttons**: `hakios.buttons.cupid.c`, a separate driver for the SPMI arbiter v7 (PMK8350 PON,
