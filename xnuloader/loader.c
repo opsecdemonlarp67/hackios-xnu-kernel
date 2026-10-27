@@ -3950,9 +3950,22 @@ efi_main(efi_handle image, efi_system_table *st)
 	    READ_SYSREG(ID_AA64MMFR0_EL1), READ_SYSREG(CNTFRQ_EL0), (uint64_t)(uintptr_t)&__ImageBase);
 
 	PLAT = &platform_qemu_virt;
+#ifdef PLATFORM_CUPID
+	/* A build for the Xiaomi 12 must never guess QEMU: ramfb writes to 0x09020000,
+	 * which is not mapped on this SoC. */
+	PLAT = &platform_cupid;
+#endif
 	if (EFI_ERROR(BS->locate_protocol(&gop_guid, NULL, (void **)&GOP)) || GOP->mode == NULL ||
 	    GOP->mode->info == NULL || GOP->mode->fb_base == 0) {
 		GOP = NULL;                     /* no display (QEMU without -device ramfb) */
+#ifdef PLATFORM_CUPID
+		/* Keep the kernel's console on the splash framebuffer even if the firmware
+		 * did not publish a GOP (the panel may still be on from the bootloader). */
+		SCREEN.base = 0xB8000000ULL;
+		SCREEN.width = 1080;
+		SCREEN.height = 2400;
+		SCREEN.stride = 1080 * 4;
+#endif
 	} else {
 		SCREEN.base = GOP->mode->fb_base;
 		SCREEN.width = GOP->mode->info->width;
@@ -3962,7 +3975,7 @@ efi_main(efi_handle image, efi_system_table *st)
 			PLAT = &platform_redwood;
 		} else if (SCREEN.base == 0xB8000000ULL) {
 			PLAT = &platform_cupid;
-		} else {
+		} else if (PLAT == &platform_qemu_virt) {
 			ramfb_phone_screen();
 		}
 		print("display %d x %d at %x\n", (uint64_t)SCREEN.width, (uint64_t)SCREEN.height, SCREEN.base);
